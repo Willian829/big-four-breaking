@@ -1,0 +1,495 @@
+/* ==========================================================================
+   Big Four Breaking — estilos complementares ao Tailwind
+   - Tokens de tema (dark/light) usados pelas utilities (bg-bg, text-muted…)
+   - Cores das ligas via [data-league]
+   - Componentes que dependem da cor da liga + animações
+   Obs.: no Tailwind v4 as utilities ficam em @layer; este arquivo não usa
+   layers, então vence em caso de conflito. Por isso aqui só ficam
+   propriedades que as classes do HTML não definem.
+   ========================================================================== */
+
+/* ---------- Tokens de tema (padrão: escuro) ---------- */
+:root {
+  --bg: #07080c;
+  --surface: #0e1017;
+  --elevated: #171a24;
+  --line: #1f2330;
+  --fg: #f2f4f7;
+  --muted: #9ba1ae;
+  --subtle: #6b7280;
+  --live: #ff3b30;
+
+  /* Cores das ligas: base (fundos, pontos) e "ink" (texto com contraste ajustado ao tema) */
+  --c-nba: #f97316; --c-nba-ink: #fdba74;
+  --c-nfl: #10b981; --c-nfl-ink: #6ee7b7;
+  --c-nhl: #22d3ee; --c-nhl-ink: #67e8f9;
+  --c-mlb: #6366f1; --c-mlb-ink: #a5b4fc;
+
+  --league: var(--fg);
+  --league-ink: var(--fg);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --header-h: 64px;
+  color-scheme: dark;
+}
+
+:root.light {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --elevated: #e9ecf1;
+  --line: #e0e3ea;
+  --fg: #0a0c11;
+  --muted: #4f5766;
+  --subtle: #7a8190;
+  --live: #e0261c;
+
+  --c-nba-ink: #c2410c;
+  --c-nfl-ink: #047857;
+  --c-nhl-ink: #0e7490;
+  --c-mlb-ink: #4338ca;
+  color-scheme: light;
+}
+
+[data-league="nba"] { --league: var(--c-nba); --league-ink: var(--c-nba-ink); }
+[data-league="nfl"] { --league: var(--c-nfl); --league-ink: var(--c-nfl-ink); }
+[data-league="nhl"] { --league: var(--c-nhl); --league-ink: var(--c-nhl-ink); }
+[data-league="mlb"] { --league: var(--c-mlb); --league-ink: var(--c-mlb-ink); }
+
+/* ---------- Base ---------- */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fundo definido aqui também para não piscar enquanto o Tailwind compila */
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+::selection { background: color-mix(in oklab, var(--live) 35%, transparent); }
+
+:where(a, button):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--fg) 75%, transparent);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Brilho ambiente no topo da página (muda de cor nas páginas de liga) */
+.ambient {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 75vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(48rem 24rem at 10% -12%, color-mix(in oklab, var(--c-mlb) 15%, transparent), transparent 70%),
+    radial-gradient(44rem 22rem at 90% -14%, color-mix(in oklab, var(--c-nba) 11%, transparent), transparent 70%);
+}
+.ambient[data-league] {
+  background: radial-gradient(64rem 30rem at 50% -16%, color-mix(in oklab, var(--league) 20%, transparent), transparent 72%);
+}
+.light .ambient { opacity: .55; }
+
+/* ---------- Navegação ---------- */
+.nav-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .95rem;
+  border-radius: 999px;
+  font-size: .875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: color .25s;
+}
+.nav-link:hover,
+.nav-link[aria-current="page"] { color: var(--fg); }
+
+.nav-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--league) 16%, var(--elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--league) 30%, transparent);
+  transition:
+    transform .5s var(--ease-out),
+    width .5s var(--ease-out),
+    background-color .3s,
+    box-shadow .3s;
+}
+.nav-indicator.no-transition { transition: none; }
+
+.dot {
+  width: .45rem;
+  height: .45rem;
+  border-radius: 999px;
+  background: var(--league);
+  flex: none;
+}
+.dot--lg { width: .6rem; height: .6rem; box-shadow: 0 0 0 4px color-mix(in oklab, var(--league) 20%, transparent); }
+
+/* ---------- Botões ---------- */
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: color .2s, background-color .2s, transform .2s var(--ease-out);
+}
+.icon-btn:hover { color: var(--fg); background: var(--elevated); }
+.icon-btn:active { transform: scale(.92); }
+.icon-btn.is-spinning svg { animation: spin .9s linear infinite; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .85rem 1.6rem;
+  border-radius: 999px;
+  font-size: .9375rem;
+  font-weight: 600;
+  background: var(--fg);
+  color: var(--bg);
+  transition: transform .25s var(--ease-out), box-shadow .3s, background-color .2s;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 14px 30px -14px color-mix(in oklab, var(--fg) 55%, transparent); }
+.btn:active { transform: scale(.97); }
+.btn--ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+.btn--ghost:hover { background: var(--elevated); box-shadow: inset 0 0 0 1px var(--line); }
+.btn svg { transition: transform .25s var(--ease-out); }
+.btn--ghost:hover svg { transform: translateY(2px); }
+
+/* ---------- Badges e chips ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .32rem .6rem .32rem .5rem;
+  border-radius: 999px;
+  font-size: .6875rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--league-ink);
+  background: color-mix(in oklab, var(--league) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--league) 32%, transparent);
+  transition: background-color .25s, transform .25s var(--ease-out);
+}
+.badge:hover { background: color-mix(in oklab, var(--league) 26%, transparent); }
+.badge:active { transform: scale(.96); }
+
+/* Versão "vidro" para usar sobre fotos */
+.badge--glass,
+.chip--glass {
+  color: #fff;
+  background: rgb(0 0 0 / .42);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+.badge--glass:hover { background: rgb(0 0 0 / .62); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .32rem .55rem;
+  border-radius: 999px;
+  font-size: .6875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.chip--new {
+  color: #fff;
+  background: var(--live);
+  box-shadow: none;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.chip--new .live-dot { background: #fff; width: .4rem; height: .4rem; }
+
+/* ---------- Indicadores "ao vivo" ---------- */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  border-radius: 999px;
+  background: var(--live);
+  flex: none;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: ping 1.8s cubic-bezier(0, 0, .2, 1) infinite;
+}
+
+.status-dot {
+  width: .5rem;
+  height: .5rem;
+  border-radius: 999px;
+  background: var(--subtle);
+  flex: none;
+  transition: background-color .3s;
+}
+[data-status][data-state="live"] .status-dot  { background: #22c55e; box-shadow: 0 0 0 4px rgb(34 197 94 / .18); }
+[data-status][data-state="stale"] .status-dot { background: #f59e0b; box-shadow: 0 0 0 4px rgb(245 158 11 / .18); }
+[data-status][data-state="error"] .status-dot { background: var(--live); box-shadow: 0 0 0 4px color-mix(in oklab, var(--live) 20%, transparent); }
+
+/* ---------- Cards ---------- */
+.card {
+  transition:
+    transform .45s var(--ease-out),
+    box-shadow .45s var(--ease-out),
+    border-color .3s;
+}
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 30px 60px -30px color-mix(in oklab, var(--league) 65%, transparent);
+}
+.card--panel:hover { border-color: color-mix(in oklab, var(--league) 45%, var(--line)); }
+.card:has(.stretched:focus-visible) {
+  outline: 2px solid var(--league);
+  outline-offset: 3px;
+}
+
+/* Link do título cobre o card inteiro (mantém um único link acessível por card) */
+.stretched::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.stretched:focus-visible { outline: none; }
+
+.card-title,
+.rail-title { transition: color .25s; }
+.card--panel:hover .card-title,
+.rail-item:hover .rail-title { color: var(--league-ink); }
+
+.card .go svg { transition: transform .3s var(--ease-out); }
+.card:hover .go { color: var(--league-ink); }
+.card:hover .go svg { transform: translate(2px, -2px); }
+
+/* Imagens de capa: aparecem com fade e dão zoom suave no hover */
+.cover {
+  opacity: 0;
+  transition: opacity .6s ease, transform .9s var(--ease-out);
+}
+.cover.is-loaded { opacity: 1; }
+.card:hover .cover,
+.rail-item:hover .cover { transform: scale(1.06); }
+
+/* Degradê sobre fotos para garantir leitura do texto */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(to top, color-mix(in oklab, var(--league) 22%, transparent), transparent 35%),
+    linear-gradient(to top, rgb(0 0 0 / .92) 0%, rgb(0 0 0 / .72) 28%, rgb(0 0 0 / .28) 58%, rgb(0 0 0 / 0) 82%);
+}
+
+/* Capa reserva quando a notícia não tem imagem (ou a imagem falha) */
+.cover-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, var(--league) 40%, transparent), transparent 62%),
+    linear-gradient(135deg, var(--elevated), var(--surface));
+}
+.cover-fallback span {
+  font-family: var(--font-display, "Gabarito"), sans-serif;
+  font-size: clamp(1.75rem, 7vw, 4.5rem);
+  font-weight: 900;
+  letter-spacing: -.04em;
+  color: color-mix(in oklab, var(--league) 60%, transparent);
+}
+
+.play-btn {
+  position: absolute;
+  left: .85rem;
+  bottom: .85rem;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / .5);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform .3s var(--ease-out), background-color .3s;
+}
+.card:hover .play-btn { transform: scale(1.1); background: var(--league); }
+
+/* ---------- Painéis "Por liga" ---------- */
+.rail::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, var(--league), transparent 85%);
+}
+.rail .see-all { transition: color .2s, gap .25s var(--ease-out); }
+.rail .see-all:hover { color: var(--league-ink); gap: .5rem; }
+
+/* ---------- Banner das páginas de liga ---------- */
+.league-banner {
+  background:
+    radial-gradient(80% 140% at 100% 0%, color-mix(in oklab, var(--league) 26%, transparent), transparent 62%),
+    linear-gradient(180deg, var(--surface), color-mix(in oklab, var(--surface) 40%, var(--bg)));
+}
+.league-banner .watermark {
+  position: absolute;
+  right: -.5rem;
+  bottom: -.18em;
+  font-family: var(--font-display, "Gabarito"), sans-serif;
+  font-size: clamp(6rem, 22vw, 17rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.06em;
+  color: transparent;
+  -webkit-text-stroke: 1.5px color-mix(in oklab, var(--league) 38%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+.league-banner .accent { color: var(--league); }
+
+/* ---------- Ticker ---------- */
+.ticker-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 3%, #000 94%, transparent);
+}
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: marquee var(--duration, 90s) linear infinite;
+}
+.ticker-viewport:hover .ticker-track,
+.ticker-viewport:focus-within .ticker-track { animation-play-state: paused; }
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .65rem 1.4rem;
+  font-size: .8125rem;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: color .2s;
+}
+.ticker-item strong {
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--league-ink);
+}
+.ticker-item:hover { color: var(--fg); }
+
+/* ---------- Skeleton (carregamento) ---------- */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--elevated);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--fg) 7%, transparent), transparent);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ---------- Aviso de novas notícias + toast ---------- */
+.new-pill {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--header-h) + .75rem);
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .65rem 1.15rem;
+  border-radius: 999px;
+  font-size: .875rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--live);
+  box-shadow: 0 14px 34px -12px color-mix(in oklab, var(--live) 75%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -140%);
+  transition: transform .5s var(--ease-out), opacity .3s, visibility .3s;
+}
+.new-pill[data-show="true"] { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.new-pill:hover { filter: brightness(1.08); }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  z-index: 50;
+  max-width: calc(100vw - 2rem);
+  padding: .75rem 1.15rem;
+  border-radius: 1rem;
+  font-size: .875rem;
+  color: var(--fg);
+  background: var(--elevated);
+  box-shadow: inset 0 0 0 1px var(--line), 0 20px 40px -20px rgb(0 0 0 / .6);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 1rem);
+  transition: transform .4s var(--ease-out), opacity .3s, visibility .3s;
+}
+.toast[data-show="true"] { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+
+/* ---------- Animações ---------- */
+/* "backwards" (e não "both"): depois de terminar, a animação não trava o transform do hover */
+.reveal {
+  animation: reveal .7s var(--ease-out) backwards;
+  animation-delay: calc(min(var(--i, 0), 12) * 60ms);
+}
+.no-anim .reveal { animation: none; }
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(16px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ping { 75%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { to { transform: translateX(100%); } }
+@keyframes marquee { to { transform: translateX(-50%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .ticker-viewport { overflow-x: auto; }
+  .ticker-track { animation: none; }
+}
