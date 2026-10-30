@@ -1,0 +1,49 @@
+name: Deploy GitHub Pages (a cada hora)
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 * * * *'   # minuto 17 de toda hora (UTC)
+  workflow_dispatch:        # habilita o botão "Run workflow"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Gera o snapshot (data/news.json)
+        run: node scripts/fetch-news.mjs
+
+      - name: Monta a pasta do site
+        run: |
+          mkdir _site
+          cp -r index.html favicon.svg .nojekyll css js data _site/
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
