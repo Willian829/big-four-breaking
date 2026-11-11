@@ -1,0 +1,397 @@
+# Rotina diária de manutenção
+#
+# O que faz: executa uma verificação automatizada real do repositório (inventário de
+# arquivos versionados e integridade dos arquivos Markdown) e registra o resultado em
+# docs/maintenance-log.md.
+#
+# Rodízio: este mesmo arquivo existe, idêntico, em todos os repositórios listados em
+# ROTATION_REPOS. A cada dia (UTC) apenas UM deles registra a verificação; os demais
+# encerram em poucos segundos, sem checkout e sem commit. Resultado: no máximo um commit
+# automático por dia, somando todos os repositórios.
+#
+# Sem loops: o workflow só dispara por agendamento ou manualmente, e o push usa o
+# GITHUB_TOKEN, que por regra do GitHub não dispara outros workflows.
+#
+# Como desativar (qualquer uma das opções):
+#   1. Actions > "Rotina diária de manutenção" > menu "..." > Disable workflow.
+#   2. Settings > Secrets and variables > Actions > Variables:
+#      criar DAILY_CONTRIBUTION_ENABLED com o valor false.
+#   3. Apagar este arquivo.
+
+name: Rotina diária de manutenção
+
+on:
+  schedule:
+    # O GitHub Actions agenda em UTC e pode atrasar (ou, raramente, descartar) execuções.
+    # Os dois horários ficam longe da meia-noite UTC para que um atraso não mude o dia.
+    - cron: "23 11 * * *" # 11:23 UTC (08:23 em Brasília): execução principal
+    - cron: "23 17 * * *" # 17:23 UTC (14:23 em Brasília): reserva; não duplica o registro
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Registrar hoje neste repositório, mesmo fora da vez dele no rodízio"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Só executar as verificações, sem criar commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # mínimo necessário: gravar docs/maintenance-log.md na branch padrão
+
+concurrency:
+  group: daily-contribution
+  cancel-in-progress: false
+
+env:
+  # Ordem do rodízio. A posição na lista define o dia de cada repositório.
+  # Para incluir ou retirar um repositório, altere a lista em TODOS os repositórios
+  # participantes (o arquivo precisa continuar idêntico em todos).
+  ROTATION_REPOS: >-
+    pulso-games
+    Biblioteca
+    learnquest
+    Coffee
+    ContaBancaria
+    big-four-breaking
+  LOG_FILE: docs/maintenance-log.md
+
+jobs:
+  maintenance:
+    name: Verificação e registro
+    # Interruptor geral (variável de repositório) e proteção contra execução em forks.
+    if: ${{ vars.DAILY_CONTRIBUTION_ENABLED != 'false' && !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Conferir a vez no rodízio
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_FORCE: ${{ inputs.force }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          read -r -a repos <<< "${ROTATION_REPOS}"
+          total=${#repos[@]}
+          if [ "${total}" -eq 0 ]; then
+            echo "::error::ROTATION_REPOS está vazio; não há rodízio definido."
+            exit 1
+          fi
+
+          slot=-1
+          for i in "${!repos[@]}"; do
+            if [ "${repos[$i],,}" = "${repo_name,,}" ]; then slot=$i; fi
+          done
+
+          # Dia corrente em UTC, contado desde 1970-01-01. O resto da divisão pelo
+          # número de repositórios indica de quem é a vez.
+          now=$(date -u +%s)
+          today=$(date -u +%F)
+          day_index=$(( now / 86400 ))
+          turn=$(( day_index % total ))
+
+          is_turn=false
+          if [ "${slot}" -eq "${turn}" ]; then is_turn=true; fi
+
+          if [ "${slot}" -lt 0 ]; then
+            echo "::warning::${repo_name} não está em ROTATION_REPOS; nenhum commit agendado será feito aqui."
+            next="(fora do rodízio)"
+          else
+            days_until=$(( (slot - turn + total) % total ))
+            next=$(date -u -d "@$(( (day_index + days_until) * 86400 ))" +%F)
+          fi
+
+          run=false
+          commit=false
+          case "${EVENT_NAME}" in
+            schedule)
+              run=${is_turn}
+              commit=${is_turn}
+              reason="agendamento; vez de hoje: ${repos[$turn]}"
+              ;;
+            workflow_dispatch)
+              run=true
+              if [ "${is_turn}" = true ] || [ "${INPUT_FORCE:-false}" = true ]; then commit=true; fi
+              if [ "${INPUT_DRY_RUN:-false}" = true ]; then commit=false; fi
+              reason="execução manual (force=${INPUT_FORCE:-false}, dry_run=${INPUT_DRY_RUN:-false}); vez de hoje: ${repos[$turn]}"
+              ;;
+            *)
+              reason="evento não previsto: ${EVENT_NAME}"
+              ;;
+          esac
+
+          # Branch padrão: vem do evento; se faltar, consulta a API do GitHub.
+          default_branch="${EVENT_DEFAULT_BRANCH:-}"
+          if [ -z "${default_branch}" ] && [ "${run}" = true ]; then
+            default_branch=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .default_branch)
+          fi
+          if [ -z "${default_branch}" ] && [ "${run}" = true ]; then
+            echo "::error::Não foi possível identificar a branch padrão."
+            exit 1
+          fi
+
+          {
+            echo "run=${run}"
+            echo "commit=${commit}"
+            echo "today=${today}"
+            echo "default_branch=${default_branch}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Rodízio"
+            echo ""
+            echo "- Data (UTC): ${today} (dia ${day_index})"
+            echo "- Repositórios no rodízio: ${total}"
+            echo "- Vez de hoje: \`${repos[$turn]}\`"
+            echo "- Este repositório: \`${repo_name}\` (posição ${slot}); próxima vez: ${next}"
+            echo "- Motivo: ${reason}"
+            echo "- Executar verificações: ${run}; registrar commit: ${commit}"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Baixar a branch padrão
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.gate.outputs.default_branch }}
+          fetch-depth: 1
+
+      - name: Verificar o repositório e atualizar o registro
+        id: checks
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TODAY: ${{ steps.gate.outputs.today }}
+          WRITE_LOG: ${{ steps.gate.outputs.commit }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+          import urllib.parse
+          from pathlib import Path
+
+          log_file = os.environ["LOG_FILE"]
+          today = os.environ["TODAY"]
+          write_log = os.environ.get("WRITE_LOG") == "true"
+          run_number = os.environ.get("GITHUB_RUN_NUMBER", "0")
+          run_url = "{}/{}/actions/runs/{}".format(
+              os.environ.get("GITHUB_SERVER_URL", "https://github.com"),
+              os.environ.get("GITHUB_REPOSITORY", ""),
+              os.environ.get("GITHUB_RUN_ID", ""),
+          )
+
+          listing = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True)
+          tracked = [p for p in listing.stdout.decode("utf-8", "replace").split("\0") if p and p != log_file]
+          markdown = [p for p in tracked if p.lower().endswith((".md", ".markdown"))]
+
+          FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+          INLINE_CODE = re.compile(r"`[^`\n]*`")
+          TARGETS = (
+              re.compile(r"\]\(\s*(<[^>\n]+>|[^)\s]+)"),            # [texto](destino) e ![alt](destino)
+              re.compile(r"^ {0,3}\[[^\]\n]+\]:\s*(\S+)"),          # [ref]: destino
+              re.compile(r"""(?:src|href)\s*=\s*["']([^"'\n]+)["']"""),  # HTML embutido
+          )
+          EXTERNAL = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//|#)")
+
+          def local_path(md_path, target):
+              """Caminho local apontado por um link relativo, ou None se for externo/âncora."""
+              target = target.strip()
+              if target.startswith("<") and target.endswith(">"):
+                  target = target[1:-1].strip()
+              if not target or EXTERNAL.match(target) or "{{" in target or "${" in target:
+                  return None
+              target = urllib.parse.unquote(target.split("#", 1)[0].split("?", 1)[0])
+              if not target:
+                  return None
+              base = "." if target.startswith("/") else os.path.dirname(md_path)
+              return os.path.normpath(os.path.join(base, target.lstrip("/")))
+
+          broken = []    # (arquivo, linha, destino)
+          unclosed = []  # (arquivo, linha de abertura)
+          empty = []     # arquivos Markdown sem conteúdo
+
+          for md in markdown:
+              try:
+                  text = Path(md).read_text(encoding="utf-8", errors="replace")
+              except OSError as exc:
+                  print(f"::warning file={md}::Não foi possível ler o arquivo: {exc}")
+                  continue
+              if not text.strip():
+                  empty.append(md)
+                  continue
+              fence = None  # (caractere, tamanho, linha) enquanto um bloco está aberto
+              for number, line in enumerate(text.splitlines(), start=1):
+                  match = FENCE.match(line)
+                  if fence is None and match:
+                      fence = (match.group(1)[0], len(match.group(1)), number)
+                      continue
+                  if fence is not None:
+                      if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] \
+                              and not line.strip().strip(fence[0]):
+                          fence = None
+                      continue
+                  clean = INLINE_CODE.sub("", line)
+                  for pattern in TARGETS:
+                      for target in pattern.findall(clean):
+                          path = local_path(md, target)
+                          if path is None:
+                              continue
+                          if path.startswith("..") or not os.path.exists(path):
+                              broken.append((md, number, target))
+              if fence is not None:
+                  unclosed.append((md, fence[2]))
+
+          readme = next(
+              (p for p in tracked if "/" not in p and p.lower() in ("readme.md", "readme.markdown", "readme", "readme.txt", "readme.rst")),
+              None,
+          )
+          if readme is None:
+              readme_status = "ausente"
+          else:
+              content = Path(readme).read_text(encoding="utf-8", errors="replace")
+              readme_status = "vazio" if not content.strip() else f"ok ({len(content.splitlines())} linhas)"
+
+          issues = []
+          if readme_status in ("ausente", "vazio"):
+              issues.append(f"README {readme_status}")
+          if broken:
+              issues.append(f"{len(broken)} link(s) relativo(s) quebrado(s)")
+          if unclosed:
+              issues.append(f"{len(unclosed)} bloco(s) de código sem fechamento")
+          other_empty = [p for p in empty if p != readme]
+          if other_empty:
+              issues.append(f"{len(other_empty)} arquivo(s) Markdown vazio(s)")
+          result = "⚠️ " + "; ".join(issues) if issues else "✅ sem pendências"
+
+          for md, number, target in broken[:20]:
+              print(f"::warning file={md},line={number}::Link relativo quebrado: {target}")
+          for md, number in unclosed[:20]:
+              print(f"::warning file={md},line={number}::Bloco de código aberto e não fechado")
+          for md in other_empty[:20]:
+              print(f"::warning file={md}::Arquivo Markdown vazio")
+
+          row = (
+              f"| {today} | {len(tracked)} | {len(markdown)} | {len(broken)} | {len(unclosed)} "
+              f"| {readme_status} | {result} | [#{run_number}]({run_url}) |"
+          )
+
+          HEADER = """# Registro de manutenção
+
+          Este arquivo é atualizado automaticamente pelo workflow
+          [`daily-contribution.yml`](../.github/workflows/daily-contribution.yml).
+          Cada linha registra uma verificação automatizada do repositório: inventário dos
+          arquivos versionados e integridade dos arquivos Markdown (links relativos, blocos de
+          código sem fechamento e presença do README). A coluna "Execução" aponta para a
+          execução do GitHub Actions que gerou a linha.
+
+          Para pausar: Actions > "Rotina diária de manutenção" > Disable workflow, ou crie a
+          variável de repositório `DAILY_CONTRIBUTION_ENABLED` com o valor `false`.
+
+          | Data (UTC) | Arquivos versionados | Arquivos Markdown | Links relativos quebrados | Blocos de código abertos | README | Resultado | Execução |
+          | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+          """
+          HEADER = "\n".join(line.strip() for line in HEADER.splitlines()) + "\n"
+
+          log_path = Path(log_file)
+          current = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+          already = any(line.startswith(f"| {today} |") for line in current.splitlines())
+
+          changed = False
+          if already:
+              status = "já existe registro de hoje; nada a acrescentar"
+          elif not write_log:
+              status = "verificação concluída sem registro (fora da vez no rodízio ou dry_run)"
+          else:
+              text = current if current.strip() else HEADER
+              if not text.endswith("\n"):
+                  text += "\n"
+              log_path.parent.mkdir(parents=True, exist_ok=True)
+              log_path.write_text(text + row + "\n", encoding="utf-8")
+              changed = True
+              status = f"linha acrescentada em {log_file}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"changed={'true' if changed else 'false'}\n")
+
+          summary = [
+              "### Verificação",
+              "",
+              "| Item | Valor |",
+              "| --- | --- |",
+              f"| Arquivos versionados | {len(tracked)} |",
+              f"| Arquivos Markdown | {len(markdown)} |",
+              f"| Links relativos quebrados | {len(broken)} |",
+              f"| Blocos de código abertos | {len(unclosed)} |",
+              f"| README | {readme_status} |",
+              f"| Resultado | {result} |",
+              f"| Registro | {status} |",
+              "",
+          ]
+          print("\n".join(summary))
+          with open(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull), "a", encoding="utf-8") as out:
+              out.write("\n".join(summary) + "\n")
+          PY
+
+      - name: Registrar o commit na branch padrão
+        if: steps.gate.outputs.commit == 'true' && steps.checks.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+          TODAY: ${{ steps.gate.outputs.today }}
+          DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
+        run: |
+          set -euo pipefail
+
+          # Identidade: e-mail noreply do dono do repositório (ID+login), que o GitHub
+          # associa à conta. Nenhum token ou e-mail pessoal fica gravado no arquivo.
+          owner_id="${OWNER_ID:-}"
+          if [ -z "${owner_id}" ]; then
+            owner_id=$(gh api "users/${OWNER}" --jq .id)
+          fi
+          if [ -z "${owner_id}" ]; then
+            echo "::error::Não foi possível obter o ID da conta ${OWNER} para montar o e-mail noreply."
+            exit 1
+          fi
+          git config user.name "${OWNER}"
+          git config user.email "${owner_id}+${OWNER}@users.noreply.github.com"
+
+          git add -- "${LOG_FILE}"
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração a registrar; commit não criado."
+            exit 0
+          fi
+
+          git commit \
+            -m "chore: rotina automatizada de manutenção" \
+            -m "Verificação automatizada de ${TODAY} (execução #${GITHUB_RUN_NUMBER})."
+
+          pushed=false
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:refs/heads/${DEFAULT_BRANCH}"; then
+              pushed=true
+              break
+            fi
+            echo "::warning::Push recusado (tentativa ${attempt}/3); sincronizando com origin/${DEFAULT_BRANCH}."
+            sleep $(( attempt * 5 ))
+            git pull --rebase origin "${DEFAULT_BRANCH}"
+          done
+          if [ "${pushed}" != true ]; then
+            echo "::error::Não foi possível enviar o commit após 3 tentativas."
+            exit 1
+          fi
+
+          {
+            echo "### Commit"
+            echo ""
+            echo "- Branch: \`${DEFAULT_BRANCH}\`"
+            echo "- Commit: \`$(git rev-parse --short HEAD)\`"
+            echo "- Autor: $(git log -1 --format='%an <%ae>')"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
