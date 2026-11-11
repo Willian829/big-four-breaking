@@ -22,10 +22,12 @@ name: Rotina diária de manutenção
 
 on:
   schedule:
-    # O GitHub Actions agenda em UTC e pode atrasar (ou, raramente, descartar) execuções.
-    # Os dois horários ficam longe da meia-noite UTC para que um atraso não mude o dia.
-    - cron: "23 11 * * *" # 11:23 UTC (08:23 em Brasília): execução principal
-    - cron: "23 17 * * *" # 17:23 UTC (14:23 em Brasília): reserva; não duplica o registro
+    # O GitHub Actions agenda em UTC e, em contas gratuitas, atrasa ou descarta boa parte
+    # das execuções (nos repositórios desta conta, um cron de hora em hora dispara só de
+    # 2 a 4 vezes por dia). Por isso há 8 tentativas diárias: a primeira que rodar no dia
+    # da vez do repositório registra a verificação; as demais encerram sem commit.
+    # A decisão usa sempre a data UTC do momento em que a execução de fato começa.
+    - cron: "43 */3 * * *" # 00:43, 03:43, ... 21:43 UTC (21:43, 00:43, ... 18:43 em Brasília)
   workflow_dispatch:
     inputs:
       force:
@@ -93,7 +95,8 @@ jobs:
           # Dia corrente em UTC, contado desde 1970-01-01. O resto da divisão pelo
           # número de repositórios indica de quem é a vez.
           now=$(date -u +%s)
-          today=$(date -u +%F)
+          today=$(date -u -d "@${now}" +%F)
+          hhmm=$(date -u -d "@${now}" +%H%M)
           day_index=$(( now / 86400 ))
           turn=$(( day_index % total ))
 
@@ -135,6 +138,26 @@ jobs:
           if [ -z "${default_branch}" ] && [ "${run}" = true ]; then
             echo "::error::Não foi possível identificar a branch padrão."
             exit 1
+          fi
+
+          # Proteções extras das execuções agendadas (as manuais ficam a critério de quem dispara).
+          if [ "${EVENT_NAME}" = schedule ] && [ "${run}" = true ]; then
+            # 1. Perto da virada do dia em UTC o commit poderia cair na data seguinte e
+            #    coincidir com o do próximo repositório do rodízio.
+            if [ "$(( 10#${hhmm} ))" -ge 2345 ]; then
+              run=false
+              commit=false
+              reason="${reason}; muito perto da virada do dia em UTC, fica para a próxima vez"
+            else
+              # 2. Se o registro de hoje já existe, encerra aqui, sem baixar o repositório.
+              log_now=$(gh api -H "Accept: application/vnd.github.raw" \
+                "repos/${GITHUB_REPOSITORY}/contents/${LOG_FILE}?ref=${default_branch}" 2>/dev/null || true)
+              if grep -q "^| ${today} |" <<< "${log_now}"; then
+                run=false
+                commit=false
+                reason="${reason}; o registro de hoje já existe"
+              fi
+            fi
           fi
 
           {
