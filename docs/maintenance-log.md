@@ -14,3 +14,4 @@ variável de repositório `DAILY_CONTRIBUTION_ENABLED` com o valor `false`.
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | 2026-11-14 | 13 | 1 | 0 | 0 | ok (194 linhas) | ✅ sem pendências | [#8](https://github.com/Willian829/big-four-breaking/actions/runs/43542715144) |
 | 2026-11-20 | 13 | 1 | 0 | 0 | ok (194 linhas) | ✅ sem pendências | [#25](https://github.com/Willian829/big-four-breaking/actions/runs/44662007242) |
+| 2026-11-26 | 13 | 1 | 0 | 0 | ok (194 linhas) | ✅ sem pendências | [#41](https://github.com/Willian829/big-four-breaking/actions/runs/45751068717) |
